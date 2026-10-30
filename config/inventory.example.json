@@ -1,0 +1,20 @@
+{
+  "servers": {
+    "srv-01": { "host": "srv-01.example.com" },
+    "srv-02": { "host": "srv-02.example.com" }
+  },
+  "accounts": {
+    "clientea": {
+      "server": "srv-01",
+      "domains": ["cliente-a.example.com"],
+      "aliases": ["Cliente A"],
+      "contact": "contato-a@example.com"
+    },
+    "clienteb": {
+      "server": "srv-02",
+      "domains": ["cliente-b.example.com", "loja-b.example.com"],
+      "aliases": ["Cliente B"],
+      "contact": "contato-b@example.com"
+    }
+  }
+}

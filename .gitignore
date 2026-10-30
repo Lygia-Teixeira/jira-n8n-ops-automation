@@ -1,0 +1,23 @@
+# Segredos e configuração local
+.env
+*.env
+!.env.example
+config/inventory.json
+
+# Chaves
+*.key
+*.pem
+id_ed25519*
+known_hosts
+
+# Exportações do n8n com dados reais (exporte, revise e só então copie para workflows/)
+exports/
+*.credentials.json
+
+# Node / editores / SO
+node_modules/
+coverage/
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

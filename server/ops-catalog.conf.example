@@ -1,0 +1,5 @@
+# /etc/ops-catalog.conf (root:root, 0600). Só chaves conhecidas e valores numéricos.
+QUOTA_INCREASE_PCT=30
+QUOTA_MAX_MB=10240
+CSF_TEMP_ALLOW_SECONDS=0
+AUTOSSL_TIMEOUT=300

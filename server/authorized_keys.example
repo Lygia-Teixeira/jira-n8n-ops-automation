@@ -1,0 +1,5 @@
+# /home/opsbot/.ssh/authorized_keys (dono opsbot, 0600)
+# Uma chave dedicada por instância de n8n. "restrict" desliga PTY, forwarding de
+# porta/agente/X11; "command=" força o wrapper, ignorando o comando pedido;
+# "from=" limita a origem ao IP de saída do n8n.
+restrict,from="203.0.113.10",command="sudo -n /usr/local/sbin/ops-catalog" ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAA_CHANGE_ME n8n-ops-automation

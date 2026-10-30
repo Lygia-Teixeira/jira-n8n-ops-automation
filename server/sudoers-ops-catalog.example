@@ -1,0 +1,10 @@
+# /etc/sudoers.d/ops-catalog (root:root, 0440) - valide com: visudo -cf /etc/sudoers.d/ops-catalog
+# O usuário opsbot só pode executar o wrapper, sem argumentos (modo forced-command):
+# a linha do n8n chega ao wrapper pela variável SSH_ORIGINAL_COMMAND.
+Defaults!/usr/local/sbin/ops-catalog env_keep += "SSH_ORIGINAL_COMMAND"
+Defaults:opsbot !requiretty
+opsbot ALL=(root) NOPASSWD: /usr/local/sbin/ops-catalog ""
+
+# Modo sudo-wrapper (OPS_SSH_MODE=sudo-wrapper), se não puder usar forced command:
+# opsbot ALL=(root) NOPASSWD: /usr/local/sbin/ops-catalog *
+# Nesse modo o usuário tem shell; prefira forced-command.

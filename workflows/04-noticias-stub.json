@@ -1,0 +1,163 @@
+{
+  "name": "Ops Automation — Notícias (stub)",
+  "nodes": [
+    {
+      "parameters": {
+        "inputSource": "passthrough"
+      },
+      "id": "news-01",
+      "name": "Receber cards",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        0,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Gerado por scripts/build-workflows.js a partir de src/. Edite o módulo, não este nó.\n// ---- src/validators.js ----\n// Validadores estritos para todo valor que vem do texto de um card.\n// Regra geral: se não passar aqui, não vira argumento de comando.\n\nconst CPANEL_USER_RE = /^[a-z][a-z0-9]{0,15}$/;\nconst RESERVED_SYSTEM_USERS = new Set([\n  'root', 'admin', 'nobody', 'cpanel', 'cpanelphpmyadmin', 'cpses', 'mail', 'mailman',\n  'mysql', 'named', 'system', 'daemon', 'bin', 'sys', 'sshd', 'ftp', 'apache', 'www',\n]);\n\nfunction isValidCpanelUser(value) {\n  return typeof value === 'string' && CPANEL_USER_RE.test(value) && !RESERVED_SYSTEM_USERS.has(value);\n}\n\nconst ISSUE_KEY_RE = /^[A-Z][A-Z0-9_]{1,9}-[1-9][0-9]{0,6}$/;\n\nfunction isValidIssueKey(value) {\n  return typeof value === 'string' && ISSUE_KEY_RE.test(value);\n}\n\n// ---------------------------------------------------------------------------\n// Hostnames\n// ---------------------------------------------------------------------------\nconst LABEL_RE = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/;\n\nfunction isValidHostname(value) {\n  if (typeof value !== 'string' || value.length === 0 || value.length > 253) return false;\n  if (value !== value.toLowerCase()) return false;\n  const labels = value.split('.');\n  if (labels.length < 2) return false;\n  if (!labels.every((l) => LABEL_RE.test(l))) return false;\n  const tld = labels[labels.length - 1];\n  return /^[a-z]{2,63}$/.test(tld) || /^xn--[a-z0-9-]{1,59}$/.test(tld);\n}\n\n// ---------------------------------------------------------------------------\n// E-mail (RFC simplificado, só o que uma caixa cPanel aceita na prática)\n// ---------------------------------------------------------------------------\nconst MAIL_LOCAL_RE = /^[a-z0-9](?:[a-z0-9._-]{0,62}[a-z0-9])?$/;\n\nfunction parseEmail(value) {\n  if (typeof value !== 'string') return null;\n  const v = value.trim().toLowerCase();\n  if (v.length > 254) return null;\n  const parts = v.split('@');\n  if (parts.length !== 2) return null;\n  const [local, domain] = parts;\n  if (!MAIL_LOCAL_RE.test(local) || local.includes('..')) return null;\n  if (!isValidHostname(domain)) return null;\n  return { local, domain, address: local + '@' + domain };\n}\n\n// ---------------------------------------------------------------------------\n// IPv4\n// ---------------------------------------------------------------------------\nfunction parseIPv4(value) {\n  if (typeof value !== 'string') return null;\n  const parts = value.split('.');\n  if (parts.length !== 4) return null;\n  const octets = [];\n  for (const p of parts) {\n    // sem zeros à esquerda (evita ambiguidade octal) e só dígitos\n    if (!/^(?:0|[1-9][0-9]{0,2})$/.test(p)) return null;\n    const n = Number(p);\n    if (n > 255) return null;\n    octets.push(n);\n  }\n  return octets;\n}\n\n// Faixas especiais (RFC 6890 e correlatas) escritas como octetos para manter\n// o repositório livre de endereços em notação pontuada fora das faixas de documentação.\nconst IPV4_SPECIAL = [\n  { base: [0, 0, 0, 0], bits: 8 },        // \"this network\"\n  { base: [10, 0, 0, 0], bits: 8 },       // RFC 1918\n  { base: [100, 64, 0, 0], bits: 10 },    // CGNAT\n  { base: [127, 0, 0, 0], bits: 8 },      // loopback\n  { base: [169, 254, 0, 0], bits: 16 },   // link-local\n  { base: [172, 16, 0, 0], bits: 12 },    // RFC 1918\n  { base: [192, 0, 0, 0], bits: 24 },     // IETF protocol assignments\n  { base: [192, 0, 2, 0], bits: 24 },     // TEST-NET-1\n  { base: [192, 88, 99, 0], bits: 24 },   // 6to4 relay anycast\n  { base: [192, 168, 0, 0], bits: 16 },   // RFC 1918\n  { base: [198, 18, 0, 0], bits: 15 },    // benchmarking\n  { base: [198, 51, 100, 0], bits: 24 },  // TEST-NET-2\n  { base: [203, 0, 113, 0], bits: 24 },   // TEST-NET-3\n  { base: [224, 0, 0, 0], bits: 4 },      // multicast\n  { base: [240, 0, 0, 0], bits: 4 },      // reservado + broadcast\n];\n\nfunction ipv4ToInt(o) {\n  return ((o[0] << 24) >>> 0) + (o[1] << 16) + (o[2] << 8) + o[3];\n}\n\nfunction ipv4InRange(octets, range) {\n  const mask = range.bits === 0 ? 0 : (0xffffffff << (32 - range.bits)) >>> 0;\n  return ((ipv4ToInt(octets) & mask) >>> 0) === ((ipv4ToInt(range.base) & mask) >>> 0);\n}\n\nfunction isPublicIPv4(value) {\n  const o = parseIPv4(value);\n  if (!o) return false;\n  return !IPV4_SPECIAL.some((r) => ipv4InRange(o, r));\n}\n\n// ---------------------------------------------------------------------------\n// IPv6\n// ---------------------------------------------------------------------------\nfunction parseIPv6(value) {\n  if (typeof value !== 'string' || value.length > 45) return null;\n  let v = value.trim().toLowerCase();\n  if (v.includes('%')) return null; // zone id não é aceito\n  const lastColon = v.lastIndexOf(':');\n  if (lastColon !== -1 && v.slice(lastColon + 1).includes('.')) {\n    // IPv4 embutido no fim (ex.: ::ffff:a.b.c.d) vira dois grupos hexadecimais\n    const v4 = parseIPv4(v.slice(lastColon + 1));\n    if (!v4) return null;\n    const hi = ((v4[0] << 8) | v4[1]).toString(16);\n    const lo = ((v4[2] << 8) | v4[3]).toString(16);\n    v = v.slice(0, lastColon + 1) + hi + ':' + lo;\n  }\n  const doubleColon = v.split('::');\n  if (doubleColon.length > 2) return null;\n  const toGroups = (s) => (s === '' ? [] : s.split(':'));\n  const head = toGroups(doubleColon[0]);\n  const rest = doubleColon.length === 2 ? toGroups(doubleColon[1]) : [];\n  const hexOk = (g) => /^[0-9a-f]{1,4}$/.test(g);\n  if (!head.every(hexOk) || !rest.every(hexOk)) return null;\n  const explicit = head.length + rest.length;\n  let groups;\n  if (doubleColon.length === 2) {\n    if (explicit > 7) return null;\n    groups = [...head, ...Array(8 - explicit).fill('0'), ...rest].map((g) => parseInt(g, 16));\n  } else {\n    if (explicit !== 8) return null;\n    groups = [...head, ...rest].map((g) => parseInt(g, 16));\n  }\n  return groups.length === 8 ? groups : null;\n}\n\nfunction formatIPv6(groups) {\n  // RFC 5952: minúsculas, sem zeros à esquerda, comprime a maior sequência (>=2) de zeros\n  let bestStart = -1;\n  let bestLen = 0;\n  for (let i = 0; i < 8; ) {\n    if (groups[i] !== 0) { i++; continue; }\n    let j = i;\n    while (j < 8 && groups[j] === 0) j++;\n    if (j - i > bestLen && j - i >= 2) { bestStart = i; bestLen = j - i; }\n    i = j;\n  }\n  const hex = groups.map((g) => g.toString(16));\n  if (bestStart === -1) return hex.join(':');\n  const left = hex.slice(0, bestStart).join(':');\n  const right = hex.slice(bestStart + bestLen).join(':');\n  return left + '::' + right;\n}\n\nconst IPV6_SPECIAL = [\n  ['2001::', 23],      // IETF protocol assignments (inclui Teredo)\n  ['2001:db8::', 32],  // documentação\n  ['2002::', 16],      // 6to4\n].map(([p, bits]) => ({ groups: parseIPv6(p), bits }));\n\nfunction ipv6InPrefix(groups, prefix) {\n  let bits = prefix.bits;\n  for (let i = 0; i < 8 && bits > 0; i++) {\n    const take = Math.min(16, bits);\n    const mask = (0xffff << (16 - take)) & 0xffff;\n    if ((groups[i] & mask) !== (prefix.groups[i] & mask)) return false;\n    bits -= take;\n  }\n  return true;\n}\n\nfunction isPublicIPv6(value) {\n  const g = parseIPv6(value);\n  if (!g) return false;\n  // somente unicast global (2000::/3), menos as faixas especiais acima\n  if ((g[0] & 0xe000) !== 0x2000) return false;\n  return !IPV6_SPECIAL.some((p) => ipv6InPrefix(g, p));\n}\n\n/**\n * Normaliza e valida um IP para desbloqueio. Retorna a forma canônica ou null.\n * Só aceita endereços públicos: desbloquear faixa privada/reservada não faz\n * sentido operacional e costuma ser sinal de erro ou abuso.\n */\nfunction normalizePublicIp(value) {\n  if (typeof value !== 'string') return null;\n  const v = value.trim();\n  if (v.includes(':')) {\n    const g = parseIPv6(v);\n    if (!g || !isPublicIPv6(v)) return null;\n    return { version: 6, address: formatIPv6(g) };\n  }\n  if (!isPublicIPv4(v)) return null;\n  return { version: 4, address: v };\n}\n\n// ---- src/text.js ----\n// Extração de texto do card (Atlassian Document Format) e leitura de campos\n// estruturados no formato \"Chave: valor\", um por linha.\n\nconst MAX_TEXT_LENGTH = 20000;\n\nfunction adfToText(node) {\n  if (node == null) return '';\n  if (typeof node === 'string') return node.slice(0, MAX_TEXT_LENGTH);\n  const out = [];\n  const walk = (n) => {\n    if (!n || typeof n !== 'object') return;\n    if (n.type === 'text' && typeof n.text === 'string') out.push(n.text);\n    if (n.type === 'hardBreak') out.push('\\n');\n    if (Array.isArray(n.content)) n.content.forEach(walk);\n    if (['paragraph', 'heading', 'listItem', 'codeBlock', 'blockquote'].includes(n.type)) out.push('\\n');\n  };\n  walk(node);\n  return out.join('').replace(/\\n{3,}/g, '\\n\\n').trim().slice(0, MAX_TEXT_LENGTH);\n}\n\nfunction normalizeKey(value) {\n  return String(value)\n    .normalize('NFD')\n    .replace(/[̀-ͯ]/g, '')\n    .toLowerCase()\n    .replace(/[^a-z0-9]/g, '');\n}\n\n// Nome canônico do campo -> variações aceitas no template do card\nconst FIELD_ALIASES = {\n  cliente: ['cliente', 'contacpanel', 'usuariocpanel', 'usuario'],\n  ip: ['ip', 'enderecoip', 'ipbloqueado'],\n  email: ['email', 'contadeemail', 'caixapostal', 'conta'],\n  atividade: ['atividade', 'tipo', 'tipodeatividade'],\n  periodo: ['periodo'],\n};\n\nconst ALIAS_TO_FIELD = Object.entries(FIELD_ALIASES).reduce((acc, [field, aliases]) => {\n  aliases.forEach((a) => { acc[a] = field; });\n  return acc;\n}, {});\n\n/**\n * Lê linhas \"Chave: valor\". Só campos conhecidos são considerados; um campo\n * repetido com valores diferentes é marcado como ambíguo (o card é recusado).\n */\nfunction parseFields(text) {\n  const fields = {};\n  const ambiguous = new Set();\n  String(text || '').split(/\\r?\\n/).forEach((line) => {\n    const m = line.match(/^\\s*[-*]?\\s*([^:]{1,40}):\\s*(.{1,320}?)\\s*$/);\n    if (!m) return;\n    const field = ALIAS_TO_FIELD[normalizeKey(m[1])];\n    if (!field) return;\n    const value = m[2].trim();\n    if (fields[field] !== undefined && fields[field] !== value) ambiguous.add(field);\n    else fields[field] = value;\n  });\n  return { fields, ambiguous: [...ambiguous] };\n}\n\nfunction normalizeText(value) {\n  return String(value || '')\n    .normalize('NFD')\n    .replace(/[̀-ͯ]/g, '')\n    .toLowerCase();\n}\n\n// ---- src/inventory.js ----\n// Inventório: fonte da verdade sobre quais contas existem, em qual servidor\n// estão, quais domínios pertencem a cada conta e quem é o contato responsável.\n// O texto do card nunca decide servidor nem dono de domínio: só o inventário.\n\n\n\nconst SERVER_NAME_RE = /^[a-z0-9][a-z0-9-]{0,31}$/;\n\nfunction parseInventory(raw) {\n  let inv = raw;\n  if (typeof raw === 'string') {\n    try { inv = JSON.parse(raw); } catch (e) { throw new Error('inventory: JSON inválido'); }\n  }\n  if (!inv || typeof inv !== 'object') throw new Error('inventory: objeto ausente');\n  const servers = inv.servers || {};\n  const accounts = inv.accounts || {};\n  for (const [name, srv] of Object.entries(servers)) {\n    if (!SERVER_NAME_RE.test(name)) throw new Error('inventory: nome de servidor inválido');\n    if (!srv || !isValidHostname(srv.host)) throw new Error('inventory: host inválido em ' + name);\n  }\n  const aliasIndex = new Map();\n  for (const [user, acc] of Object.entries(accounts)) {\n    if (!isValidCpanelUser(user)) throw new Error('inventory: usuário cPanel inválido');\n    if (!acc || !servers[acc.server]) throw new Error('inventory: servidor desconhecido para ' + user);\n    if (!Array.isArray(acc.domains) || !acc.domains.every(isValidHostname)) {\n      throw new Error('inventory: domínios inválidos para ' + user);\n    }\n    if (acc.contact !== undefined && !parseEmail(acc.contact)) {\n      throw new Error('inventory: contato inválido para ' + user);\n    }\n    for (const alias of [user, ...(acc.aliases || [])]) {\n      const k = normalizeKey(alias);\n      if (!k) continue;\n      if (!aliasIndex.has(k)) aliasIndex.set(k, new Set());\n      aliasIndex.get(k).add(user);\n    }\n  }\n  return { servers, accounts, aliasIndex };\n}\n\n/**\n * Resolve o campo \"Cliente\" do card para uma conta do inventário.\n * Correspondência exata (usuário ou alias normalizado). Sem busca por\n * substring: \"ana\" nunca deve casar com \"mariana\".\n */\nfunction resolveAccount(inventory, value) {\n  const k = normalizeKey(value || '');\n  if (!k) return { status: 'missing' };\n  const users = inventory.aliasIndex.get(k);\n  if (!users || users.size === 0) return { status: 'not_found' };\n  if (users.size > 1) return { status: 'ambiguous' };\n  const user = [...users][0];\n  const account = inventory.accounts[user];\n  return { status: 'ok', user, account, server: account.server, host: inventory.servers[account.server].host };\n}\n\nfunction accountOwnsDomain(account, domain) {\n  return Array.isArray(account.domains) && account.domains.includes(domain);\n}\n\n/** Domínio (ou subdomínio) -> conta dona, pelo sufixo mais longo em fronteira de rótulo. */\nfunction findAccountByHostname(inventory, hostname) {\n  let best = null;\n  for (const [user, acc] of Object.entries(inventory.accounts)) {\n    for (const d of acc.domains) {\n      if (hostname === d || hostname.endsWith('.' + d)) {\n        if (!best || d.length > best.domain.length) best = { user, domain: d, server: acc.server };\n      }\n    }\n  }\n  if (!best) return null;\n  return { ...best, host: inventory.servers[best.server].host };\n}\n\n// ---- src/config.js ----\n// Configuração lida de variáveis de ambiente do n8n ($env).\n// Só configuração vai aqui; segredos ficam no cofre de credenciais do n8n.\n// Padrões seguros: dry-run ligado, allowlist vazia, aprovação obrigatória.\n\n\nfunction parseBool(value, fallback) {\n  if (value === undefined || value === null || value === '') return fallback;\n  return /^(1|true|yes|sim|on)$/i.test(String(value).trim());\n}\n\nfunction parseIntInRange(value, fallback, min, max) {\n  const n = Number.parseInt(value, 10);\n  if (!Number.isFinite(n)) return fallback;\n  return Math.min(max, Math.max(min, n));\n}\n\nfunction parseList(value) {\n  return String(value || '')\n    .split(',')\n    .map((s) => s.trim())\n    .filter(Boolean);\n}\n\nconst SSH_MODES = ['forced-command', 'sudo-wrapper'];\n\nfunction readConfig(env) {\n  const e = env || {};\n  const sshMode = SSH_MODES.includes(e.OPS_SSH_MODE) ? e.OPS_SSH_MODE : 'forced-command';\n  return {\n    jiraBaseUrl: String(e.JIRA_BASE_URL || 'https://example.atlassian.net').replace(/\\/+$/, ''),\n    projectKeys: parseList(e.JIRA_PROJECT_KEYS || 'OPS'),\n    automationStatus: e.JIRA_AUTOMATION_STATUS || 'Selecionado para Automação',\n    statusDone: e.JIRA_STATUS_DONE || 'Conferir e Avisar',\n    statusTriage: e.JIRA_STATUS_TRIAGE || 'Triagem Manual',\n    claimLabel: e.JIRA_CLAIM_LABEL || 'ops-automation-claimed',\n    botAccountId: e.JIRA_BOT_ACCOUNT_ID || '',\n    approverIds: parseList(e.OPS_APPROVER_ACCOUNT_IDS),\n    requireFourEyes: parseBool(e.OPS_REQUIRE_FOUR_EYES, true),\n    dryRun: parseBool(e.OPS_DRY_RUN, true),\n    allowedActivities: parseList(e.OPS_ALLOWED_ACTIVITIES),\n    maxActionsPerRun: parseIntInRange(e.OPS_MAX_ACTIONS_PER_RUN, 5, 0, 50),\n    searchMaxResults: parseIntInRange(e.JIRA_SEARCH_MAX_RESULTS, 25, 1, 100),\n    sshMode,\n    passwordLength: parseIntInRange(e.OPS_PASSWORD_LENGTH, 20, 16, 64),\n    secretTtlHours: parseIntInRange(e.OPS_SECRET_TTL_HOURS, 24, 1, 72),\n    sslMaxRetries: parseIntInRange(e.SSL_MAX_RETRIES, 1, 0, 3),\n    sslDedupHours: parseIntInRange(e.SSL_DEDUP_HOURS, 12, 0, 168),\n    inventory: parseInventory(e.OPS_INVENTORY_JSON || '{\"servers\":{},\"accounts\":{}}'),\n  };\n}\n\n// ---- src/classify.js ----\n// Classificação do card: em qual fila ele entra (orquestrador) e qual\n// atividade do catálogo ele pede (workflow de infra).\n// A atividade é decidida pelo título ou pelo campo \"Atividade\", nunca por\n// palavras soltas na descrição (que qualquer pessoa pode preencher à vontade).\n\n\nconst ACTIVITY_RULES = [\n  { id: 'ip_unblock', re: /desbloque|ip bloquead|liberar ip|liberacao de ip/ },\n  { id: 'mail_quota_increase', re: /(aument|ampli).{0,30}(cota|quota|capacidade|espaco)|caixa (cheia|lotada)|e-?mail cheio/ },\n  { id: 'mail_password_reset', re: /(redefin|reset|troc|nova).{0,20}senha/ },\n  { id: 'usage_report', re: /relatorio.{0,30}(usabilidade|acesso)|awstats/ },\n];\n\nconst ACTIVITY_IDS = ACTIVITY_RULES.map((r) => r.id);\n\nfunction classifyActivity(summary, fields) {\n  const explicit = fields && fields.atividade ? normalizeKey(fields.atividade) : '';\n  if (explicit) {\n    const byId = ACTIVITY_IDS.find((id) => normalizeKey(id) === explicit);\n    if (byId) return byId;\n  }\n  const source = normalizeText(explicit ? fields.atividade : summary);\n  const hits = [...new Set(ACTIVITY_RULES.filter((r) => r.re.test(source)).map((r) => r.id))];\n  if (hits.length === 1) return hits[0];\n  return hits.length === 0 ? 'unknown' : 'ambiguous';\n}\n\n/**\n * Fila do orquestrador. Etiqueta (label) tem precedência sobre o prefixo do título.\n * Card que pertence às duas filas é ignorado (decisão humana).\n */\nfunction detectLane(issue, claimLabel) {\n  const f = (issue && issue.fields) || {};\n  const labels = (f.labels || []).map((l) => normalizeKey(l));\n  if (claimLabel && labels.includes(normalizeKey(claimLabel))) return 'ignored';\n  const summary = normalizeText(f.summary);\n  const infra = labels.includes('infra') || /^\\s*\\[infra\\]/.test(summary);\n  const news = labels.includes('noticia') || labels.includes('publicacao') || /^\\s*\\[(noticia|publicacao)\\]/.test(summary);\n  if (infra && news) return 'ignored';\n  if (infra) return 'infra';\n  if (news) return 'noticia';\n  return 'ignored';\n}\n\n// ---- src/news.js ----\n// Fila de notícias: o n8n só encaminha um payload mínimo para um serviço\n// externo de publicação, que é responsável por reivindicar e concluir o card.\n\n\n\n\nfunction routeIssues(issues, cfg) {\n  const out = [];\n  const seen = new Set();\n  for (const issue of issues || []) {\n    if (!issue || !isValidIssueKey(issue.key) || seen.has(issue.key)) continue;\n    seen.add(issue.key);\n    const lane = detectLane(issue, cfg.claimLabel);\n    if (lane === 'ignored') continue;\n    out.push({ lane, issueKey: issue.key, issue });\n  }\n  return out;\n}\n\nfunction buildNewsJob(issue, cfg) {\n  const f = (issue && issue.fields) || {};\n  return {\n    issueKey: issue.key,\n    idempotencyKey: 'news-' + issue.key,\n    dryRun: cfg.dryRun,\n    title: String(f.summary || '').replace(/^\\s*\\[[^\\]]*\\]\\s*/, '').slice(0, 300),\n    body: adfToText(f.description).slice(0, 10000),\n    attachments: (f.attachment || []).slice(0, 20).map((a) => ({\n      id: String(a.id),\n      filename: String(a.filename || '').slice(0, 200),\n      mimeType: String(a.mimeType || ''),\n      size: Number(a.size) || 0,\n    })),\n  };\n}\n\n// ---- cola do nó ----\nconst cfg = readConfig($env);\nreturn $input.all().map((i) => ({ json: buildNewsJob(i.json.issue, cfg) }));\n"
+      },
+      "id": "news-02",
+      "name": "Montar payload",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        220,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $json.dryRun }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "news-03",
+      "name": "Dry-run?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        440,
+        300
+      ]
+    },
+    {
+      "parameters": {},
+      "id": "news-04",
+      "name": "Somente registrar (dry-run)",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        660,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.NEWS_PUBLISHER_URL }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json) }}",
+        "options": {
+          "timeout": 30000
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Idempotency-Key",
+              "value": "={{ $json.idempotencyKey }}"
+            }
+          ]
+        }
+      },
+      "id": "news-05",
+      "name": "Enviar ao serviço de publicação",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        660,
+        400
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "name": "News Publisher API"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Receber cards": {
+      "main": [
+        [
+          {
+            "node": "Montar payload",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Montar payload": {
+      "main": [
+        [
+          {
+            "node": "Dry-run?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Dry-run?": {
+      "main": [
+        [
+          {
+            "node": "Somente registrar (dry-run)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Enviar ao serviço de publicação",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "callerPolicy": "workflowsFromSameOwner"
+  },
+  "pinData": {},
+  "meta": {
+    "templateCredsSetupCompleted": false
+  },
+  "tags": []
+}

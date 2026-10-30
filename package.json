@@ -1,0 +1,14 @@
+{
+  "name": "jira-n8n-ops-automation",
+  "version": "1.0.0",
+  "description": "Automação de operações de hospedagem (Jira + n8n) com validação estrita, catálogo fixo de comandos, dry-run e auditoria.",
+  "private": true,
+  "license": "MIT",
+  "author": "Lygia Teixeira",
+  "engines": { "node": ">=20" },
+  "scripts": {
+    "build": "node scripts/build-workflows.js",
+    "check": "node scripts/build-workflows.js --check && node scripts/validate-workflows.js",
+    "test": "node --test"
+  }
+}
